@@ -1,0 +1,16 @@
+# ai/requirements.txt
+torch
+torchvision
+torchaudio
+open-clip-torch
+timm
+opencv-python-headless
+faiss-cpu
+numpy
+scipy
+scikit-learn
+scikit-image
+librosa
+Pillow
+onnx
+onnxruntime

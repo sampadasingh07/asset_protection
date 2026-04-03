@@ -1,0 +1,8 @@
+# ai/.gitignore
+__pycache__/
+*.pyc
+*.pth
+*.onnx
+saved_index/
+venv/
+.env
