@@ -2,19 +2,19 @@
    EnforcementPage — Enforcement actions log
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import EnforcementModal from '../components/EnforcementModal';
-import { generateEnforcementData } from '../hooks/useMockData';
+import {
+  fetchAssets,
+  fetchViolations,
+  createEnforcementRecord,
+  updateViolationStatus
+} from '../lib/api';
+import {
+  buildAssetMap,
+  mapViolationsToEnforcementLog,
+} from '../lib/backendMappers';
 import { Gavel, CheckCircle, Clock, Eye, AlertTriangle, FileText } from 'lucide-react';
-
-function generateEnforcementLog() {
-  return Array.from({ length: 15 }, () => {
-    const d = generateEnforcementData();
-    const statuses = ['auto_takedown', 'human_review', 'pending', 'confirmed', 'rejected'];
-    const s = statuses[Math.floor(Math.random() * statuses.length)];
-    return { ...d, action_status: s };
-  });
-}
 
 const STATUS_MAP = {
   auto_takedown: { label: 'Auto-Takedown', color: 'var(--risk-critical)', bg: 'var(--risk-critical-bg)', icon: Gavel },
@@ -25,8 +25,60 @@ const STATUS_MAP = {
 };
 
 export default function EnforcementPage() {
-  const log = useMemo(() => generateEnforcementLog(), []);
+  const [assets, setAssets] = useState([]);
+  const [violations, setViolations] = useState([]);
   const [selectedAction, setSelectedAction] = useState(null);
+  const [actionStatus, setActionStatus] = useState(null);
+
+  const assetMap = useMemo(() => buildAssetMap(assets), [assets]);
+  const log = useMemo(() => mapViolationsToEnforcementLog(violations, assetMap), [violations, assetMap]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [assetsPayload, violationsPayload] = await Promise.all([
+        fetchAssets(),
+        fetchViolations(),
+      ]);
+      setAssets(assetsPayload);
+      setViolations(violationsPayload);
+    } catch (error) {
+      console.error('Failed to load enforcement log:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleAction = async (action, data) => {
+    setActionStatus(null);
+
+    try {
+      if (action === 'review') {
+        await updateViolationStatus(data.violation_id, 'under_review');
+        setActionStatus({ type: 'success', message: 'Violation marked for review' });
+      } else if (action === 'takedown') {
+        await createEnforcementRecord(
+          data.violation_id,
+          'DMCA_TAKEDOWN',
+          data.platform,
+          {
+            notes: `Auto-generated DMCA takedown for high-risk content (score: ${data.morph_score})`,
+            status: 'PENDING'
+          }
+        );
+        await updateViolationStatus(data.violation_id, 'enforcement_initiated');
+        setActionStatus({ type: 'success', message: 'DMCA takedown filed successfully' });
+      }
+
+      setTimeout(() => {
+        setSelectedAction(null);
+      }, 2000);
+    } catch (error) {
+      console.error(`Action failed: ${action}`, error);
+      setActionStatus({ type: 'error', message: error.message || 'Action failed' });
+    }
+  };
 
   return (
     <div className="page-container">
@@ -145,8 +197,26 @@ export default function EnforcementPage() {
         <EnforcementModal
           data={selectedAction}
           onClose={() => setSelectedAction(null)}
-          onAction={() => setSelectedAction(null)}
+          onAction={handleAction}
         />
+      )}
+
+      {actionStatus && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            padding: '16px 20px',
+            borderRadius: '8px',
+            background: actionStatus.type === 'success' ? 'var(--risk-safe)' : 'var(--risk-critical)',
+            color: 'white',
+            zIndex: 1000,
+            fontWeight: '500',
+          }}
+        >
+          {actionStatus.message}
+        </div>
       )}
     </div>
   );

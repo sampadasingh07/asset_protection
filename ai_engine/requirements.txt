@@ -1,7 +1,4 @@
 # ai/requirements.txt
-torch
-torchvision
-torchaudio
 open-clip-torch
 timm
 opencv-python-headless

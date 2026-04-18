@@ -2,15 +2,47 @@
    HighRiskPage — Full high-risk account management page
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import HighRiskTable from '../components/HighRiskTable';
 import EnforcementModal from '../components/EnforcementModal';
-import { generateHighRiskAccounts, generateEnforcementData } from '../hooks/useMockData';
+import {
+  fetchAssets,
+  fetchViolations,
+  createEnforcementRecord,
+  updateViolationStatus
+} from '../lib/api';
+import {
+  buildAssetMap,
+  buildHighRiskAccounts,
+  mapViolationToEnforcementData,
+} from '../lib/backendMappers';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export default function HighRiskPage() {
-  const accounts = useMemo(() => generateHighRiskAccounts(), []);
+  const [assets, setAssets] = useState([]);
+  const [violations, setViolations] = useState([]);
   const [enforcementData, setEnforcementData] = useState(null);
+  const [actionStatus, setActionStatus] = useState(null);
+
+  const assetMap = useMemo(() => buildAssetMap(assets), [assets]);
+  const accounts = useMemo(() => buildHighRiskAccounts(violations), [violations]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [assetsPayload, violationsPayload] = await Promise.all([
+        fetchAssets(),
+        fetchViolations(),
+      ]);
+      setAssets(assetsPayload);
+      setViolations(violationsPayload);
+    } catch (error) {
+      console.error('Failed to load high-risk accounts:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const platformDistribution = useMemo(() => {
     const dist = {};
@@ -39,6 +71,43 @@ export default function HighRiskPage() {
         <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{payload[0].value} accounts</div>
       </div>
     );
+  };
+
+  const handleAction = async (action, data) => {
+    setActionStatus(null);
+
+    try {
+      if (action === 'review') {
+        await updateViolationStatus(data.violation_id, 'under_review');
+        setActionStatus({ type: 'success', message: 'Violation marked for review' });
+      } else if (action === 'takedown') {
+        await createEnforcementRecord(
+          data.violation_id,
+          'DMCA_TAKEDOWN',
+          data.platform,
+          {
+            notes: `Auto-generated DMCA takedown for high-risk content (score: ${data.morph_score})`,
+            status: 'PENDING'
+          }
+        );
+        await updateViolationStatus(data.violation_id, 'enforcement_initiated');
+        setActionStatus({ type: 'success', message: 'DMCA takedown filed successfully' });
+      }
+
+      setTimeout(() => {
+        setEnforcementData(null);
+      }, 2000);
+    } catch (error) {
+      console.error(`Action failed: ${action}`, error);
+      setActionStatus({ type: 'error', message: error.message || 'Action failed' });
+    }
+  };
+
+  const handleEnforceAccount = (account) => {
+    const violation = violations.find((item) => item.id === account.sample_violation_id)
+      || violations.find((item) => String(item.source_url || '').includes(account.account_id.replace('@', '')))
+      || violations[0];
+    setEnforcementData(mapViolationToEnforcementData(violation, assetMap));
   };
 
   return (
@@ -90,15 +159,33 @@ export default function HighRiskPage() {
 
       <HighRiskTable
         accounts={accounts}
-        onEnforce={() => setEnforcementData(generateEnforcementData())}
+        onEnforce={handleEnforceAccount}
       />
 
       {enforcementData && (
         <EnforcementModal
           data={enforcementData}
           onClose={() => setEnforcementData(null)}
-          onAction={() => setEnforcementData(null)}
+          onAction={handleAction}
         />
+      )}
+
+      {actionStatus && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            padding: '16px 20px',
+            borderRadius: '8px',
+            background: actionStatus.type === 'success' ? 'var(--risk-safe)' : 'var(--risk-critical)',
+            color: 'white',
+            zIndex: 1000,
+            fontWeight: '500',
+          }}
+        >
+          {actionStatus.message}
+        </div>
       )}
     </div>
   );

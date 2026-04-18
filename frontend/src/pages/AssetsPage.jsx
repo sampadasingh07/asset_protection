@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import AssetUpload from '../components/AssetUpload';
-import { fetchAssets, uploadAsset } from '../lib/api';
+import { fetchAssets, fetchViolations, searchAssetById, uploadAsset } from '../lib/api';
 import {
   FileVideo, CheckCircle, Clock, Loader, Shield,
   MoreHorizontal, Fingerprint, Link
@@ -26,18 +26,42 @@ function formatDuration(contentType) {
   return contentType?.startsWith('video/') ? '--:--' : 'n/a';
 }
 
-function mapAsset(asset) {
+function mapAsset(asset, violationStats) {
+  const stats = violationStats.get(asset.id) || { matches_count: 0, morph_score_avg: 0 };
   return {
     id: asset.id,
     name: asset.title,
     filename: asset.file_name,
+    filePath: asset.file_path,
+    sourceUrl: asset.source_url,
     status: mapAssetStatus(asset.status),
-    matches_count: 0,
-    morph_score_avg: 0,
+    matches_count: stats.matches_count,
+    morph_score_avg: stats.morph_score_avg,
     uploaded_at: asset.created_at,
     duration: formatDuration(asset.content_type),
-    blockchain_verified: false,
+    blockchain_verified: Array.isArray(asset.fingerprint_vector) && asset.fingerprint_vector.length > 0,
   };
+}
+
+function buildViolationStats(violations) {
+  const grouped = new Map();
+
+  for (const violation of violations) {
+    const existing = grouped.get(violation.asset_id) || { count: 0, sum: 0 };
+    existing.count += 1;
+    existing.sum += Number(violation.confidence || 0) * 100;
+    grouped.set(violation.asset_id, existing);
+  }
+
+  const normalized = new Map();
+  for (const [assetId, value] of grouped.entries()) {
+    normalized.set(assetId, {
+      matches_count: value.count,
+      morph_score_avg: value.count ? Math.round(value.sum / value.count) : 0,
+    });
+  }
+
+  return normalized;
 }
 
 export default function AssetsPage() {
@@ -45,13 +69,18 @@ export default function AssetsPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openMenuAssetId, setOpenMenuAssetId] = useState(null);
 
   const loadAssets = useCallback(async () => {
     setError('');
     setLoading(true);
     try {
-      const payload = await fetchAssets();
-      setAssets(payload.map(mapAsset));
+      const [assetPayload, violations] = await Promise.all([
+        fetchAssets(),
+        fetchViolations(),
+      ]);
+      const violationStats = buildViolationStats(violations);
+      setAssets(assetPayload.map((asset) => mapAsset(asset, violationStats)));
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load assets.');
     } finally {
@@ -59,9 +88,36 @@ export default function AssetsPage() {
     }
   }, []);
 
+  const handleAssetAction = useCallback(async (action, asset) => {
+    try {
+      if (action === 'copy-path') {
+        if (asset.filePath && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(asset.filePath);
+        }
+      }
+
+      if (action === 'open-source') {
+        if (asset.sourceUrl) {
+          window.open(asset.sourceUrl, '_blank', 'noopener,noreferrer');
+        }
+      }
+
+      if (action === 'scan-similar') {
+        const result = await searchAssetById(asset.id, 5);
+        const count = Array.isArray(result) ? result.length : 0;
+        window.alert(`Similarity scan found ${count} related result${count === 1 ? '' : 's'}.`);
+      }
+    } catch (actionError) {
+      window.alert(actionError instanceof Error ? actionError.message : 'Asset action failed.');
+    } finally {
+      setOpenMenuAssetId(null);
+    }
+  }, []);
+
   const handleUpload = useCallback(async (file) => {
-    await uploadAsset(file);
+    const createdAsset = await uploadAsset(file);
     await loadAssets();
+    return createdAsset;
   }, [loadAssets]);
 
   useEffect(() => {
@@ -138,10 +194,32 @@ export default function AssetsPage() {
                 <button style={{
                   background: 'none', border: 'none', color: 'var(--text-muted)',
                   cursor: 'pointer', padding: 4,
-                }}>
+                }} onClick={() => setOpenMenuAssetId((current) => current === asset.id ? null : asset.id)}>
                   <MoreHorizontal size={16} />
                 </button>
               </div>
+
+              {openMenuAssetId === asset.id && (
+                <div style={{
+                  marginBottom: 'var(--space-md)',
+                  padding: '6px',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-elevated)',
+                  display: 'grid',
+                  gap: '4px',
+                }}>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => handleAssetAction('scan-similar', asset)}>
+                    Scan Similar
+                  </button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => handleAssetAction('copy-path', asset)}>
+                    Copy File Path
+                  </button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => handleAssetAction('open-source', asset)} disabled={!asset.sourceUrl}>
+                    Open Source URL
+                  </button>
+                </div>
+              )}
 
               {/* Status + Duration */}
               <div style={{
@@ -192,7 +270,7 @@ export default function AssetsPage() {
                     color: asset.morph_score_avg > 60 ? 'var(--risk-critical)' :
                            asset.morph_score_avg > 35 ? 'var(--risk-warning)' : 'var(--risk-safe)',
                   }}>
-                    {asset.morph_score_avg}
+                    {asset.morph_score_avg}%
                   </div>
                 </div>
                 <div>

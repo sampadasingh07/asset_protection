@@ -48,6 +48,10 @@ def get_source_service(request: Request):
     return request.app.state.source_service
 
 
+def get_ai_engine_service(request: Request):
+    return request.app.state.ai_engine_service
+
+
 def get_notifier(request: Request):
     return request.app.state.notifier
 

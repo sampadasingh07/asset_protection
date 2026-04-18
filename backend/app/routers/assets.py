@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.database import get_db
 from app.deps import (
+    get_ai_engine_service,
     get_current_user,
     get_graph_service,
     get_notifier,
@@ -24,6 +25,7 @@ from app.services.milvus_service import MilvusService
 from app.services.neo4j_service import Neo4jService
 from app.services.notifier import ConnectionManager
 from app.services.source_service import SourceConfidenceService
+from app.services.ai_engine_service import AIEngineService
 from app.tasks.analysis import dispatch_asset_analysis
 
 
@@ -80,6 +82,7 @@ async def create_asset(
     milvus_service: MilvusService = Depends(get_vector_service),
     graph_service: Neo4jService = Depends(get_graph_service),
     source_service: SourceConfidenceService = Depends(get_source_service),
+    ai_engine_service: AIEngineService = Depends(get_ai_engine_service),
     notifier: ConnectionManager = Depends(get_notifier),
 ) -> AssetDetailResponse:
     vector_values = _parse_vector(vector)
@@ -123,6 +126,7 @@ async def create_asset(
         milvus_service=milvus_service,
         graph_service=graph_service,
         source_service=source_service,
+        ai_engine_service=ai_engine_service,
     )
     for alert in alerts:
         await notifier.broadcast(alert, organisation_id=current_user.organisation_id)

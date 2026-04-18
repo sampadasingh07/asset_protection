@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo } from 'react';
+import { Fragment } from 'react';
 import { ChevronUp, ChevronDown, Eye, Shield, ExternalLink, AlertTriangle } from 'lucide-react';
 
 function formatDate(isoString) {
@@ -93,8 +94,8 @@ export default function HighRiskTable({ accounts, onViewAccount, onEnforce }) {
           </thead>
           <tbody>
             {sorted.map((account) => (
-              <>
-                <tr key={account.id} onClick={() => setExpandedRow(expandedRow === account.id ? null : account.id)}>
+              <Fragment key={account.id}>
+                <tr onClick={() => setExpandedRow(expandedRow === account.id ? null : account.id)}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{
@@ -188,7 +189,7 @@ export default function HighRiskTable({ accounts, onViewAccount, onEnforce }) {
 
                 {/* Expanded row details */}
                 {expandedRow === account.id && (
-                  <tr key={`${account.id}-detail`}>
+                  <tr>
                     <td colSpan={8} style={{ padding: 0 }}>
                       <div style={{
                         background: 'var(--bg-elevated)',
@@ -225,7 +226,7 @@ export default function HighRiskTable({ accounts, onViewAccount, onEnforce }) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

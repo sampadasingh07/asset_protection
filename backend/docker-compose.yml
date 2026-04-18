@@ -1,89 +1,28 @@
-version: "3.9"
+name: asset_protection
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: verilens
-      POSTGRES_PASSWORD: verilens_secret
-      POSTGRES_DB: verilens_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U verilens -d verilens_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  milvus:
-    image: milvusdb/milvus:v2.3.4
-    command: milvus run standalone
-    environment:
-      ETCD_USE_EMBED: "true"
-      ETCD_DATA_DIR: /var/lib/milvus/etcd
-      COMMON_STORAGETYPE: local
-    ports:
-      - "19530:19530"
-      - "9091:9091"
-    volumes:
-      - milvus_data:/var/lib/milvus
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  neo4j:
-    image: neo4j:5.14
-    environment:
-      NEO4J_AUTH: neo4j/verilens_graph_secret
-      NEO4J_PLUGINS: '["apoc"]'
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    volumes:
-      - neo4j_data:/data
-
-  api:
-    build: .
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      PYTHONPATH: /app/backend:/app/ai_engine
     ports:
       - "8000:8000"
     volumes:
-      - ./uploads:/app/uploads
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      milvus:
-        condition: service_healthy
+      - ./uploads:/app/backend/uploads
+      - ./data:/app/backend/data
+      - ../ai_engine:/app/ai_engine
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  worker:
-    build: .
-    env_file:
-      - .env
-    volumes:
-      - ./uploads:/app/uploads
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
     depends_on:
-      - api
-      - redis
-    command: celery -A app.tasks.celery_app.celery_app worker -l info -Q analysis,monitoring
-
-volumes:
-  postgres_data:
-  redis_data:
-  milvus_data:
-  neo4j_data:
+      - backend
 

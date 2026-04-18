@@ -6,8 +6,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Upload, FileVideo, CheckCircle, Loader, Fingerprint,
-  ShieldCheck, X, Film, Clock
+  Upload, CheckCircle, Fingerprint,
+  ShieldCheck, X, Film
 } from 'lucide-react';
 
 const PROCESSING_STAGES = [
@@ -88,6 +88,12 @@ function UploadItem({ file, onRemove }) {
             <div className="upload-progress-fill" style={{ width: `${overallProgress}%` }} />
           </div>
         )}
+
+        {file.error && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--risk-critical)', marginTop: '4px' }}>
+            {file.error}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -95,7 +101,7 @@ function UploadItem({ file, onRemove }) {
           {isComplete ? 'Protected' : `${Math.round(overallProgress)}%`}
         </span>
         <button
-          onClick={() => onRemove(file.name)}
+          onClick={() => onRemove(file.id)}
           style={{
             background: 'none', border: 'none', cursor: 'pointer',
             color: 'var(--text-muted)', padding: 4,
@@ -108,19 +114,39 @@ function UploadItem({ file, onRemove }) {
   );
 }
 
-export default function AssetUpload() {
+export default function AssetUpload({ onUpload }) {
   const [files, setFiles] = useState([]);
 
   const onDrop = useCallback((acceptedFiles) => {
-    setFiles(prev => [...prev, ...acceptedFiles.map(f => ({
+    const queued = acceptedFiles.map((f) => ({
       name: f.name,
       size: f.size,
-      id: Math.random().toString(36).substring(7),
-    }))]);
-  }, []);
+      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(7),
+      rawFile: f,
+      error: null,
+    }));
 
-  const removeFile = (name) => {
-    setFiles(prev => prev.filter(f => f.name !== name));
+    setFiles(prev => [...prev, ...queued]);
+
+    if (typeof onUpload !== 'function') {
+      return;
+    }
+
+    queued.forEach(async (item) => {
+      try {
+        await onUpload(item.rawFile);
+      } catch (error) {
+        setFiles((prev) => prev.map((file) => (
+          file.id === item.id
+            ? { ...file, error: error instanceof Error ? error.message : 'Upload failed.' }
+            : file
+        )));
+      }
+    });
+  }, [onUpload]);
+
+  const removeFile = (id) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

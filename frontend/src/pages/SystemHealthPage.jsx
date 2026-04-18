@@ -2,33 +2,24 @@
    SystemHealthPage — System metrics and monitoring
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, LineChart, Line
+  CartesianGrid, LineChart, Line,
 } from 'recharts';
 import {
   Activity, Cpu, Database, HardDrive, Wifi, Zap,
-  Server, CheckCircle, AlertCircle
+  Server, CheckCircle, AlertCircle,
 } from 'lucide-react';
+import { fetchHealthStatus, fetchSystemStats } from '../lib/api';
 
-function genTimeSeries(points = 30, base = 50, variance = 20) {
-  return Array.from({ length: points }, (_, i) => ({
-    time: `${30 - i}m`,
-    value: Math.round(base + (Math.random() - 0.5) * variance * 2),
-  }));
+function pushSample(history, value, maxPoints = 30) {
+  const sample = {
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    value: Math.round(Math.max(0, Number(value) || 0)),
+  };
+  return [...history, sample].slice(-maxPoints);
 }
-
-const SERVICES = [
-  { name: 'FastAPI Gateway', status: 'healthy', latency: '12ms', uptime: '99.97%', icon: Server, port: 8000 },
-  { name: 'Milvus Vector DB', status: 'healthy', latency: '18ms', uptime: '99.95%', icon: Database, port: 19530 },
-  { name: 'PostgreSQL 16', status: 'healthy', latency: '4ms', uptime: '99.99%', icon: HardDrive, port: 5432 },
-  { name: 'Neo4j Graph DB', status: 'healthy', latency: '22ms', uptime: '99.91%', icon: Database, port: 7687 },
-  { name: 'Redis Queue', status: 'healthy', latency: '1ms', uptime: '99.99%', icon: Zap, port: 6379 },
-  { name: 'Celery Workers', status: 'warning', latency: '—', uptime: '99.82%', icon: Cpu, port: null },
-  { name: 'Playwright Crawlers', status: 'healthy', latency: '—', uptime: '99.88%', icon: Wifi, port: null },
-  { name: 'WebSocket Hub', status: 'healthy', latency: '3ms', uptime: '99.96%', icon: Activity, port: 8000 },
-];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -39,32 +30,180 @@ const CustomTooltip = ({ active, payload, label }) => {
       boxShadow: 'var(--shadow-md)',
     }}>
       <div style={{ color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{payload[0].value}%</div>
+      <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{payload[0].value}</div>
     </div>
   );
 };
 
 export default function SystemHealthPage() {
-  const cpuData = useMemo(() => genTimeSeries(30, 35, 15), []);
-  const memData = useMemo(() => genTimeSeries(30, 62, 10), []);
-  const queueData = useMemo(() => genTimeSeries(30, 150, 80).map(d => ({ ...d, value: Math.abs(d.value) })), []);
-  const latencyData = useMemo(() => genTimeSeries(30, 15, 8).map(d => ({ ...d, value: Math.abs(d.value) })), []);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [health, setHealth] = useState(null);
+  const [systemStats, setSystemStats] = useState({
+    cpu_percent: 0,
+    memory_percent: 0,
+    disk_percent: 0,
+    process_uptime_seconds: 0,
+    request_latency_p95_ms: 0,
+    requests_last_minute: 0,
+    queue_depth: 0,
+    queued_assets: 0,
+    processing_assets: 0,
+    ready_assets: 0,
+    open_violations: 0,
+    high_severity_violations: 0,
+    task_mode: 'inline',
+    ai_mode: 'fallback',
+  });
+
+  const [cpuData, setCpuData] = useState([]);
+  const [memData, setMemData] = useState([]);
+  const [queueData, setQueueData] = useState([]);
+  const [latencyData, setLatencyData] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    let pollTimer = null;
+
+    const pollSystemStats = async () => {
+      const snapshot = await fetchSystemStats();
+      if (!alive) return;
+
+      setSystemStats(snapshot);
+      setCpuData((prev) => pushSample(prev, snapshot.cpu_percent));
+      setMemData((prev) => pushSample(prev, snapshot.memory_percent));
+      setQueueData((prev) => pushSample(prev, snapshot.queue_depth));
+      setLatencyData((prev) => pushSample(prev, snapshot.request_latency_p95_ms));
+    };
+
+    const load = async () => {
+      setError('');
+      setLoading(true);
+      try {
+        const healthPayload = await fetchHealthStatus();
+        if (!alive) return;
+        setHealth(healthPayload);
+
+        await pollSystemStats();
+        pollTimer = setInterval(() => {
+          pollSystemStats().catch((pollError) => {
+            if (alive) {
+              console.error('Failed to refresh system stats:', pollError);
+            }
+          });
+        }, 5000);
+      } catch (fetchError) {
+        if (alive) {
+          setError(fetchError instanceof Error ? fetchError.message : 'Failed to load system health.');
+        }
+      } finally {
+        if (alive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      alive = false;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
+    };
+  }, []);
+
+  const services = useMemo(() => {
+    const backendHealthy = health?.status === 'ok';
+    const aiAvailable = String(systemStats.ai_mode || health?.ai_mode || 'fallback') === 'full';
+    const taskMode = String(systemStats.task_mode || health?.task_mode || 'inline');
+
+    return [
+      {
+        name: 'FastAPI API',
+        status: backendHealthy ? 'healthy' : 'warning',
+        latency: backendHealthy ? `${Math.round(systemStats.request_latency_p95_ms)}ms p95` : 'offline',
+        uptime: backendHealthy ? 'up' : 'degraded',
+        icon: Server,
+        port: 8000,
+      },
+      {
+        name: 'AI Engine',
+        status: aiAvailable ? 'healthy' : 'warning',
+        latency: aiAvailable ? 'full mode' : 'fallback mode',
+        uptime: aiAvailable ? 'active' : 'degraded',
+        icon: Cpu,
+        port: null,
+      },
+      {
+        name: 'Asset Registry (SQLite)',
+        status: backendHealthy ? 'healthy' : 'warning',
+        latency: `${systemStats.ready_assets} ready`,
+        uptime: backendHealthy ? 'connected' : 'reconnect needed',
+        icon: HardDrive,
+        port: null,
+      },
+      {
+        name: 'Violation Pipeline',
+        status: systemStats.open_violations > 0 ? 'warning' : 'healthy',
+        latency: `${systemStats.open_violations} open`,
+        uptime: `${systemStats.high_severity_violations} high severity`,
+        icon: Activity,
+        port: null,
+      },
+      {
+        name: 'Enforcement Engine',
+        status: backendHealthy ? 'healthy' : 'warning',
+        latency: `${systemStats.requests_last_minute}/min`,
+        uptime: 'tracking',
+        icon: Zap,
+        port: null,
+      },
+      {
+        name: 'Task Runner',
+        status: taskMode === 'celery' ? 'healthy' : 'warning',
+        latency: `${systemStats.queue_depth} queued`,
+        uptime: taskMode === 'celery' ? 'distributed' : 'inline mode',
+        icon: Wifi,
+        port: null,
+      },
+      {
+        name: 'Search Index',
+        status: backendHealthy ? 'healthy' : 'warning',
+        latency: `${systemStats.queued_assets} pending`,
+        uptime: 'queryable',
+        icon: Database,
+        port: null,
+      },
+    ];
+  }, [health, systemStats]);
 
   return (
     <div className="page-container">
       <div className="page-header">
         <h1 className="page-title">System Health</h1>
         <p className="page-subtitle">
-          Infrastructure monitoring — Kubernetes cluster, databases, and worker pools
+          Live backend health, AI mode, and pipeline activity
         </p>
       </div>
 
-      {/* Service Status Grid */}
+      {loading && (
+        <div className="card" style={{ marginBottom: 'var(--space-md)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          Loading health telemetry...
+        </div>
+      )}
+
+      {error && (
+        <div className="card" style={{ marginBottom: 'var(--space-md)', fontSize: '0.85rem', color: 'var(--risk-critical)' }}>
+          {error}
+        </div>
+      )}
+
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
         gap: 'var(--space-md)', marginBottom: 'var(--space-xl)',
       }}>
-        {SERVICES.map((svc, idx) => {
+        {services.map((svc, idx) => {
           const Icon = svc.icon;
           const isHealthy = svc.status === 'healthy';
           return (
@@ -112,13 +251,12 @@ export default function SystemHealthPage() {
         })}
       </div>
 
-      {/* Metric Charts */}
       <div className="dashboard-grid-full">
         <div className="card">
           <div className="card-header">
             <div className="card-title"><Cpu size={15} /> CPU Usage</div>
             <span style={{ fontSize: '0.75rem', color: 'var(--risk-safe)', fontWeight: 600 }}>
-              {cpuData[cpuData.length - 1]?.value}%
+              {cpuData[cpuData.length - 1]?.value || 0}%
             </span>
           </div>
           <div style={{ height: 180 }}>
@@ -144,7 +282,7 @@ export default function SystemHealthPage() {
           <div className="card-header">
             <div className="card-title"><HardDrive size={15} /> Memory Usage</div>
             <span style={{ fontSize: '0.75rem', color: 'var(--risk-warning)', fontWeight: 600 }}>
-              {memData[memData.length - 1]?.value}%
+              {memData[memData.length - 1]?.value || 0}%
             </span>
           </div>
           <div style={{ height: 180 }}>
@@ -170,7 +308,7 @@ export default function SystemHealthPage() {
           <div className="card-header">
             <div className="card-title"><Zap size={15} /> Queue Depth</div>
             <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary-light)', fontWeight: 600 }}>
-              {queueData[queueData.length - 1]?.value} tasks
+              {queueData[queueData.length - 1]?.value || 0} tasks
             </span>
           </div>
           <div style={{ height: 180 }}>
@@ -190,7 +328,7 @@ export default function SystemHealthPage() {
           <div className="card-header">
             <div className="card-title"><Activity size={15} /> API Latency (p95)</div>
             <span style={{ fontSize: '0.75rem', color: 'var(--risk-safe)', fontWeight: 600 }}>
-              {latencyData[latencyData.length - 1]?.value}ms
+              {latencyData[latencyData.length - 1]?.value || 0}ms
             </span>
           </div>
           <div style={{ height: 180 }}>
@@ -209,4 +347,3 @@ export default function SystemHealthPage() {
     </div>
   );
 }
-

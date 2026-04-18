@@ -101,6 +101,18 @@ export default function AlertPanel({ alerts, onMarkRead, onMarkAllRead, maxItems
                     )}
                   </div>
                 </div>
+                {alert.url && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(alert.url, '_blank');
+                    }}
+                    title="Open external URL"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                )}
                 {!alert.read && (
                   <div style={{
                     width: 6, height: 6, borderRadius: '50%',

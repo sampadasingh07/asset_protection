@@ -32,6 +32,10 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)) -> To
         )
 
     organisation_name = payload.organisation_name or f"{payload.full_name}'s Organisation"
+    existing_org_name = db.scalar(select(Organisation).where(Organisation.name == organisation_name))
+    if existing_org_name is not None:
+        organisation_name = f"{organisation_name}-{uuid4().hex[:6]}"
+
     slug = _slugify(organisation_name)
     existing_slug = db.scalar(select(Organisation).where(Organisation.slug == slug))
     if existing_slug is not None:

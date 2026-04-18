@@ -81,6 +81,7 @@ function App() {
         unreadCount={unreadCount}
         criticalCount={criticalCount}
         onAlertClick={() => handleNavigate('alerts')}
+        onNavigate={handleNavigate}
       />
 
       <main className="main-content">

@@ -2,26 +2,70 @@
    Dashboard Page — Main overview with stats, graph, alerts, and morph score
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import StatsCards from '../components/StatsCards';
 import PropagationGraph from '../components/PropagationGraph';
 import MorphScoreCard from '../components/MorphScoreCard';
 import AlertPanel from '../components/AlertPanel';
 import HighRiskTable from '../components/HighRiskTable';
 import EnforcementModal from '../components/EnforcementModal';
+import { fetchDashboardStats } from '../lib/api';
 import {
-  generateDashboardStats, generatePropagationData, generateMorphScoreData,
+  generatePropagationData, generateMorphScoreData,
   generateHighRiskAccounts, generateEnforcementData
 } from '../hooks/useMockData';
 
+const DEFAULT_STATS = {
+  totalAssets: 0,
+  matchesDetected: 0,
+  takedownsFiled: 0,
+  highRiskAccounts: 0,
+  changeAssets: 0,
+  changeMatches: 0,
+  changeTakedowns: 0,
+  changeHighRisk: 0,
+};
+
+function mapDashboardStats(payload) {
+  return {
+    totalAssets: payload.asset_count ?? 0,
+    matchesDetected: payload.violation_count ?? 0,
+    takedownsFiled: payload.open_violations ?? 0,
+    highRiskAccounts: payload.high_severity_violations ?? 0,
+    changeAssets: 0,
+    changeMatches: 0,
+    changeTakedowns: 0,
+    changeHighRisk: 0,
+  };
+}
+
 export default function Dashboard({ alerts, onMarkRead, onMarkAllRead }) {
   const [enforcementData, setEnforcementData] = useState(null);
+  const [stats, setStats] = useState(DEFAULT_STATS);
 
-  // Generate mock data on mount (stable via useMemo)
-  const stats = useMemo(() => generateDashboardStats(), []);
   const graphData = useMemo(() => generatePropagationData(), []);
   const morphData = useMemo(() => generateMorphScoreData(), []);
   const highRiskAccounts = useMemo(() => generateHighRiskAccounts(), []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadStats = async () => {
+      try {
+        const payload = await fetchDashboardStats();
+        if (isMounted) {
+          setStats(mapDashboardStats(payload));
+        }
+      } catch (error) {
+        console.error('Failed to load dashboard stats:', error);
+      }
+    };
+
+    loadStats();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleNodeClick = (node) => {
     if (node.type === 'url') {

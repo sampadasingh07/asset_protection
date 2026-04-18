@@ -3,6 +3,8 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import AssetUpload from '../components/AssetUpload';
+import { useCallback, useState } from 'react';
+import { uploadAsset } from '../lib/api';
 import { Shield, Fingerprint, Link, Zap } from 'lucide-react';
 
 const FEATURES = [
@@ -33,6 +35,19 @@ const FEATURES = [
 ];
 
 export default function UploadPage() {
+  const [uploadError, setUploadError] = useState('');
+
+  const handleUpload = useCallback(async (file) => {
+    setUploadError('');
+    try {
+      const createdAsset = await uploadAsset(file);
+      return createdAsset;
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Upload failed.');
+      throw error;
+    }
+  }, []);
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -42,7 +57,13 @@ export default function UploadPage() {
         </p>
       </div>
 
-      <AssetUpload />
+      <AssetUpload onUpload={handleUpload} />
+
+      {uploadError && (
+        <div className="card" style={{ marginTop: 'var(--space-md)', color: 'var(--risk-critical)', fontSize: '0.85rem' }}>
+          {uploadError}
+        </div>
+      )}
 
       {/* Features section */}
       <div style={{ marginTop: 'var(--space-2xl)' }}>

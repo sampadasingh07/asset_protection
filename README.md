@@ -1,6 +1,10 @@
-# DAP Shield — Digital Asset Protection Dashboard
+# DAP Shield — Integrated Asset Protection Platform
 
-This project implements the **Frontend & Data Visualization (Person 4)** module for the Digital Asset Protection (DAP) system. It is built as a standalone modern web dashboard using Vite, React, Recharts, and D3.js.
+This repository now runs as an integrated multi-module system:
+
+- `ai_engine/` for fingerprint and morph scoring pipelines
+- `backend/` for FastAPI APIs, task processing, and alerting
+- `frontend/` for the React + Vite dashboard used by the team
 
 ## Features Developed
 
@@ -19,7 +23,7 @@ Based on the `gdg.md` assignment specifications, the following components and co
 
 ### 3. Real-Time Alert System (Module 4B)
 * Implemented via `AlertPanel.jsx` and the `useAlerts.js` custom hook.
-* **Simulated WebSockets:** The hook simulates an incoming real-time data stream of critical (`CRITICAL`), warning (`WARNING`), and info (`INFO`) alerts.
+* **Backend WebSockets:** The hook now connects to the backend `/ws/alerts` endpoint and consumes real violation alerts.
 * **Framer Motion Integration:** Smooth entrance/exit animations for new incoming alerts in the live feed.
 * **State Management:** Tracking read/unread status across the entire application, updating the global sidebar notification badges.
 
@@ -43,9 +47,13 @@ Based on the `gdg.md` assignment specifications, the following components and co
 * **Evidence Bundle View:** A comprehensive modal detailing cosine similarity metrics, deepfake / AI transformation flags, platform URLs, and mock Blockchain Provenance (transaction hashes).
 * **Action Routing:** UI elements representing "Auto-Takedown" vs. "Human Review" paths.
 
-## Mock Data Architecture
-The dashboard runs completely independently of a backend system.
-* A robust `useMockData.js` utility procedurally generates all required schema payloads (GraphQL-like objects) for every component in real-time.
+## Integration Status
+
+- Dashboard stats are loaded from backend `/stats/dashboard`.
+- Assets list and uploads are wired to backend `/assets`.
+- Live alerts are wired to backend websocket `/ws/alerts`.
+- Backend analysis pipeline now attempts AI fingerprint and morph scoring when vectors are missing.
+- If optional AI runtime packages are unavailable, backend uses a deterministic fallback vector so workflows remain functional.
 
 ## Tech Stack
 - **Frameworking:** React 18 / Vite 6
@@ -57,17 +65,18 @@ The dashboard runs completely independently of a backend system.
 
 ## Setup & Running Locally
 
-1. Install all dependencies:
-```bash
-npm install
-```
+1. Start backend infra and API from `backend/`.
+2. Start frontend from `frontend/`.
 
-2. Start the Vite development server:
+Frontend quick start:
+
 ```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-3. Open `http://localhost:5173/` in your browser.
+Then open `http://localhost:5173/`.
 
 > [!NOTE]
 > The UI utilizes advanced CSS `backdrop-filter` properties. Ensure you view the dashboard in a modern browser (Chrome, Edge, Safari, Firefox) for the complete glassmorphism experience.

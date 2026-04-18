@@ -24,7 +24,7 @@ function formatDate(isoString) {
 export default function EnforcementModal({ data, onClose, onAction }) {
   if (!data) return null;
 
-  const risk = getRiskLevel(data.morph_score);
+  const risk = getRiskLevel(data.morph_score ?? 0);
   const flags = data.transformation_flags || {};
   const flagEntries = Object.entries(flags).filter(([, v]) => v);
 
@@ -112,20 +112,20 @@ export default function EnforcementModal({ data, onClose, onAction }) {
                   <div className="evidence-item-value" style={{
                     color: data.cosine_similarity > 0.92 ? 'var(--risk-critical)' : 'var(--text-primary)',
                   }}>
-                    {(data.cosine_similarity * 100).toFixed(2)}%
+                    {((data.cosine_similarity ?? 0) * 100).toFixed(2)}%
                   </div>
                 </div>
                 <div className="evidence-item">
                   <div className="evidence-item-label">GAN Score</div>
-                  <div className="evidence-item-value">{data.gan_score}/100</div>
+                  <div className="evidence-item-value">{data.gan_score ?? 0}/100</div>
                 </div>
                 <div className="evidence-item">
                   <div className="evidence-item-label">DCT Frequency</div>
-                  <div className="evidence-item-value">{data.freq_score}/100</div>
+                  <div className="evidence-item-value">{data.freq_score ?? 0}/100</div>
                 </div>
                 <div className="evidence-item">
                   <div className="evidence-item-label">Temporal Score</div>
-                  <div className="evidence-item-value">{data.temporal_score}/100</div>
+                  <div className="evidence-item-value">{data.temporal_score ?? 0}/100</div>
                 </div>
               </div>
             </div>
@@ -158,7 +158,7 @@ export default function EnforcementModal({ data, onClose, onAction }) {
                   <div className="evidence-item-label">Discovered</div>
                   <div className="evidence-item-value" style={{ fontSize: '0.8rem' }}>
                     <Clock size={12} style={{ opacity: 0.5, marginRight: 4 }} />
-                    {formatDate(data.discovered_at)}
+                    {formatDate(data.discovered_at || new Date().toISOString())}
                   </div>
                 </div>
               </div>
@@ -219,7 +219,7 @@ export default function EnforcementModal({ data, onClose, onAction }) {
                     fontFamily: 'monospace', fontSize: '0.7rem',
                     color: 'var(--text-secondary)', wordBreak: 'break-all',
                   }}>
-                    {data.blockchain_tx}
+                    {data.blockchain_tx || 'n/a'}
                   </div>
                 </div>
                 <CheckCircle size={16} style={{ color: 'var(--risk-safe)', flexShrink: 0, marginLeft: 'auto' }} />
@@ -230,7 +230,7 @@ export default function EnforcementModal({ data, onClose, onAction }) {
             <div className="evidence-grid" style={{ marginBottom: 0 }}>
               <div className="evidence-item">
                 <div className="evidence-item-label">Propagation Depth</div>
-                <div className="evidence-item-value">{data.propagation_depth} hops</div>
+                <div className="evidence-item-value">{data.propagation_depth ?? 0} hops</div>
               </div>
               <div className="evidence-item">
                 <div className="evidence-item-label">Estimated Views</div>

@@ -7,6 +7,7 @@ psycopg[binary]==3.2.13
 python-multipart==0.0.19
 SQLAlchemy==2.0.36
 uvicorn[standard]==0.32.1
+psutil==6.1.1
 
 # test dependencies
 httpx==0.28.1
