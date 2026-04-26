@@ -1,0 +1,70 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared environment variables injected into every service that talks to Redis
+# or the internal DAP API.  Override via a .env file at repo root.
+# ─────────────────────────────────────────────────────────────────────────────
+x-common-env: &common-env
+  REDIS_URL: redis://redis:6379/0
+  DAP_API_BASE: http://api:8000
+
+services:
+
+  # ── Redis (message broker + result backend for Celery) ─────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Person 3 — Celery worker (crawling / scoring / enforcement) ────────────
+  worker:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      # Telegram MTProto credentials (set in .env)
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      # Alert channels
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # AWS / S3 for DMCA packet uploads
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      DMCA_S3_BUCKET: ${DMCA_S3_BUCKET:-your-dmca-bucket}
+      # Optional Tor proxy (leave blank to disable)
+      TOR_PROXY_URL: ${TOR_PROXY_URL:-socks5://tor:9050}
+      # Playwright
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    volumes:
+      # Persist Telegram session files and downloaded clip evidence
+      - worker_sessions:/app/workers
+      - telegram_clips:/tmp/telegram_clips
+    command: >
+      celery -A workers.tasks.celery_tasks worker
+      --loglevel=info
+      --queues=crawling,scoring,enforcement
+      --concurrency=4
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.tasks.celery_tasks", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  worker_sessions:
+  telegram_clips:

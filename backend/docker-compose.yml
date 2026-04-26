@@ -1,28 +1,121 @@
 name: asset_protection
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: verilens_db
+      POSTGRES_USER: verilens
+      POSTGRES_PASSWORD: verilens_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verilens -d verilens_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ..
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgresql+psycopg://verilens:verilens_secret@postgres:5432/verilens_db
+      REDIS_URL: redis://redis:6379/0
+      TASK_MODE: celery
       PYTHONPATH: /app/backend:/app/ai_engine
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
+      - ./:/app/backend
       - ./uploads:/app/backend/uploads
       - ./data:/app/backend/data
       - ../ai_engine:/app/ai_engine
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://verilens:verilens_secret@postgres:5432/verilens_db
+      REDIS_URL: redis://redis:6379/0
+      TASK_MODE: celery
+      PYTHONPATH: /app/backend:/app/ai_engine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app/backend
+      - ./uploads:/app/backend/uploads
+      - ./data:/app/backend/data
+      - ../ai_engine:/app/ai_engine
+    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=info --queues=analysis,monitoring
+
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_DEMO_EMAIL: admin@demo.org
+      VITE_DEMO_PASSWORD: demo123
     ports:
       - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+  database_worker:
+    build:
+      context: ../database
+      dockerfile: Dockerfile
+    profiles: ["intel"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DAP_API_BASE: http://backend:8000
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command: python /app/workers/telegram_channel.py
+
+volumes:
+  postgres_data:
 
